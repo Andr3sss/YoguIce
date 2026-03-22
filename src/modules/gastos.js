@@ -32,7 +32,8 @@ export function render() {
 }
 
 function renderGastosTab() {
-  const gastos = db.getGastos().slice().sort((a, b) => b.timestamp - a.timestamp);
+  // Ahora solo mostramos los gastos exclusivos del día actual (sesión abierta)
+  const gastos = db.getGastosForJornada().slice().sort((a, b) => b.timestamp - a.timestamp);
   const summary = db.getGastosSummary();
   const isAbierto = db.isDiaAbierto();
 

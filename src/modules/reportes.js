@@ -109,19 +109,40 @@ function getFilteredAperturas(filter) {
 
 function calcInventarioSummary(aperturas) {
   const summary = {};
+  
+  // 1. Pre-llenar con todos los insumos activos registrados actualmente
+  const currentInsumos = db.getInsumos().filter(i => i.activo !== false);
+  currentInsumos.forEach(ins => {
+    // Usamos string para las keys por seguridad (Firestore ID / legacy numeric)
+    const key = String(ins.id || ins.firestoreId);
+    summary[key] = { nombre: ins.nombre, id: key, inicial: 0, final: 0, consumo: 0 };
+  });
+
+  // 2. Sumar el consumo de las aperturas/cierres
   aperturas.forEach(ap => {
     if (ap.inventario_diario) {
       ap.inventario_diario.forEach(item => {
-        if (!summary[item.id]) {
-          summary[item.id] = { nombre: item.nombre, inicial: 0, final: 0, consumo: 0 };
+        const key = String(item.id);
+        if (!summary[key]) {
+          summary[key] = { nombre: item.nombre, id: key, inicial: 0, final: 0, consumo: 0 };
         }
-        summary[item.id].inicial += item.cantidad_inicial || 0;
-        summary[item.id].final += item.cantidad_final || 0;
-        summary[item.id].consumo += item.consumo || 0;
+        summary[key].inicial += item.cantidad_inicial || 0;
+        summary[key].final += item.cantidad_final || 0;
+        summary[key].consumo += item.consumo || 0;
       });
     }
   });
-  return Object.values(summary).sort((a, b) => b.consumo - a.consumo);
+
+  // 3. Filtrar: Mostrar siempre los activos + los inactivos que tengan consumo registrado en este periodo
+  const resultObj = Object.values(summary)
+    .filter(item => {
+      const isCurrentlyActive = currentInsumos.some(i => String(i.id || i.firestoreId) === item.id);
+      return isCurrentlyActive || item.consumo > 0 || item.inicial > 0 || item.final > 0;
+    })
+    .sort((a, b) => b.consumo - a.consumo);
+  
+  console.log("Inventario Summary => ", resultObj);
+  return resultObj;
 }
 
 async function renderReport(filter) {
@@ -250,6 +271,38 @@ async function renderReport(filter) {
           </tbody>
         </table>
       </div>
+    </div>
+
+    <!-- Expenses History -->
+    <div class="card" style="margin-top: 16px;">
+      <div class="card-header">
+        <h3 class="card-title">💸 Historial de Gastos</h3>
+        ${gastos.length > 0 ? `<span style="font-size: 14px; font-weight: 600; color: var(--danger); background: rgba(239, 68, 68, 0.1); padding: 4px 8px; border-radius: 6px;">Total: ${formatCurrency(totalGastos)}</span>` : ''}
+      </div>
+      ${gastos.length > 0 ? `
+        <div class="table-container" style="border: none; max-height: 400px; overflow-y: auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Concepto</th>
+                <th>Categoría</th>
+                <th style="text-align: right;">Monto</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${gastos.slice().sort((a, b) => b.timestamp - a.timestamp).map(g => `
+                <tr>
+                  <td style="font-size: 13px; color: var(--text-muted);">${new Date(g.timestamp).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                  <td style="font-weight: 500;">${g.descripcion || 'Sin descripción'}</td>
+                  <td><span style="font-size: 11px; padding: 2px 6px; background: var(--bg-card); border-radius: 4px;">${g.categoria || 'Otros'}</span></td>
+                  <td style="text-align: right; font-weight: bold; color: var(--danger);">${formatCurrency(g.monto)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      ` : '<div class="empty-state"><p>No hay gastos registrados para este período</p></div>'}
     </div>
   `;
 }

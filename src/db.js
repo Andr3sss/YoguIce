@@ -1847,10 +1847,7 @@ export async function addGasto(gasto) {
 export function getGastosForJornada() {
   const apertura = getAperturaHoy();
   if (!apertura || apertura.estado !== 'abierto') {
-    // If day is closed, show expenses from the last apertura's range
-    if (apertura && apertura.estado === 'cerrado') {
-      return getGastos().filter(g => g.timestamp >= apertura.timestamp_apertura && g.timestamp <= (apertura.timestamp_cierre || Date.now()));
-    }
+    // Si el día está cerrado, los gastos del día actual (sesión activa) quedan en 0 / vacíos.
     return [];
   }
   // Only expenses made after this apertura opened
