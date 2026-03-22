@@ -267,8 +267,8 @@ const DEFAULT_PRODUCTS = [
       sabores: {min: 4, max: 4}, coberturas: {min: 2, max: 2}, toppings: {min: 0, max: 0}, incluye_desc: '2 Copas completas (2 sabores + 1 cobertura c/u)' } },
   { id: 30, nombre: 'Promo: 2 Waffles Trad.', precio: 7.00, categoria: 'PROMOCIONES', activo: true, emoji: '🏆', 
     opciones: { 
-      promo: { cantidad: 2, label: 'Waffle', perProduct: { sabores: {min:2, max:2}, coberturas: {min:1, max:1}, toppings: {min:0, max:0} } },
-      sabores: {min: 4, max: 4}, coberturas: {min: 2, max: 2}, toppings: {min: 0, max: 0}, incluye_desc: '2 Waffles completos (2 sabores + 1 cobertura c/u)' } },
+      promo: { cantidad: 2, label: 'Waffle', perProduct: { sabores: {min:1, max:1}, coberturas: {min:1, max:1}, toppings: {min:0, max:0} } },
+      sabores: {min: 2, max: 2}, coberturas: {min: 2, max: 2}, toppings: {min: 0, max: 0}, incluye_desc: '2 Waffles completos (1 sabor helado + 1 cobertura c/u)' } },
   { id: 31, nombre: 'Promo: 2 Bubble Waffle', precio: 6.50, categoria: 'PROMOCIONES', activo: true, emoji: '🏆', 
     opciones: { 
       promo: { cantidad: 2, label: 'Bubble Waffle', perProduct: { sabores: {min:1, max:1}, coberturas: {min:1, max:1}, toppings: {min:0, max:0} } },
@@ -508,6 +508,20 @@ export function initProducts() {
         }
       }
     }
+
+    // Force patch for Promo ID 30 (Waffles) if it has the old min: 2 config
+    const p30 = existing.find(p => p.id === 30 || p.id === '30');
+    if (p30 && p30.opciones?.promo?.perProduct?.sabores?.min === 2) {
+      console.log('🩹 Aplicando parche de configuración para Promo ID 30 (2 Waffles)...');
+      const def30 = DEFAULT_PRODUCTS.find(dp => dp.id === 30);
+      if (def30) {
+        p30.opciones = JSON.parse(JSON.stringify(def30.opciones));
+        needsSave = true;
+        // Update Firestore
+        setDoc(doc(firestore, 'productos', '30'), p30).catch(console.error);
+      }
+    }
+
     if (needsSave) {
       saveCollection(DB_KEYS.PRODUCTOS, existing);
       console.log('🔄 Migrated PROMOCIONES products with promo sub-product data');
@@ -578,6 +592,20 @@ export function deleteProduct(id) {
   deleteDoc(doc(firestore, 'productos', id.toString())).catch(err => {
     console.error("Error al eliminar producto de Firestore:", err);
   });
+}
+
+export async function importCatalog(data) {
+  const { productos, opciones } = data;
+  if (productos && Array.isArray(productos)) {
+    saveCollection(DB_KEYS.PRODUCTOS, productos);
+    const pPromises = productos.map(p => setDoc(doc(firestore, 'productos', p.id.toString()), p));
+    await Promise.all(pPromises);
+  }
+  if (opciones && Array.isArray(opciones)) {
+    saveCollection(DB_KEYS.OPCIONES, opciones);
+    const oPromises = opciones.map(o => setDoc(doc(firestore, 'opciones', o.id.toString()), o));
+    await Promise.all(oPromises);
+  }
 }
 
 // ========================================
@@ -1192,7 +1220,8 @@ export async function cobrarCuenta(cuentaId, metodoPago) {
   // Cloud write (awaited for cross-device sync)
   await updateDoc(doc(firestore, 'cuentas', cuenta.id), cuenta);
 
-  // Generate sales in Cloud
+  // Generate sales
+  const sales = getSales();
   const newSales = [];
   cuenta.items.forEach(item => {
     for (let i = 0; i < item.cantidad; i++) {
@@ -1209,10 +1238,22 @@ export async function cobrarCuenta(cuentaId, metodoPago) {
         timestamp: now.getTime(),
         cuenta_id: cuenta.id,
       };
+      sales.push(sale);
       newSales.push(sale);
-      setDoc(doc(firestore, 'ventas', id), sale); // Fire and forget sales
+      
+      // Cloud write
+      setDoc(doc(firestore, 'ventas', id), sale).catch(err => {
+        console.error("Error al registrar venta en Firestore:", err);
+      });
     }
   });
+
+  // Local persistence for sales
+  saveCollection(DB_KEYS.VENTAS, sales);
+  
+  // Emits for UI update
+  newSales.forEach(s => emit('sale-added', s));
+  emit('sales-changed', sales);
 
   return cuenta;
 }
@@ -1242,13 +1283,24 @@ export async function cancelarCuenta(cuentaId) {
 }
 
 export function getTodayCuentas() {
-  const today = getLocalDate();
-  return getCuentas().filter(c => c.fecha_apertura === today);
+  const apertura = getAperturaHoy();
+  if (!apertura) return [];
+  const sessionStart = apertura.timestamp_apertura;
+  return getCuentas().filter(c => c.timestamp_apertura >= sessionStart);
 }
 
 export function getCuentasCerradasHoy() {
-  const today = getLocalDate();
-  return getCuentas().filter(c => c.estado === 'cerrada' && c.fecha_cierre === today);
+  const apertura = getAperturaHoy();
+  if (!apertura) return [];
+  
+  const sessionStart = apertura.timestamp_apertura;
+  const sessionEnd = apertura.timestamp_cierre || Infinity;
+  
+  return getCuentas().filter(c => 
+    c.estado === 'cerrada' && 
+    c.timestamp_cierre >= sessionStart &&
+    c.timestamp_cierre <= sessionEnd
+  );
 }
 
 export function calcCuentasSummary(cuentas) {
@@ -1312,14 +1364,34 @@ export function calcTotalsByMethod(sales) {
   return totals;
 }
 
+export function groupSalesByCuenta(sales) {
+  const groups = {};
+  sales.forEach(s => {
+    const key = s.cuenta_id || s.id;
+    if (!groups[key]) {
+      groups[key] = {
+        id: key,
+        total: 0,
+        metodo_pago: s.metodo_pago,
+        fecha: s.fecha,
+        hora: s.hora,
+        usuario: s.usuario
+      };
+    }
+    groups[key].total = round2(groups[key].total + s.precio);
+  });
+  return Object.values(groups);
+}
+
 export function calcDaySummary(sales) {
   const totals = calcTotalsByMethod(sales);
+  const grouped = groupSalesByCuenta(sales);
   const total = round2(sales.reduce((sum, s) => sum + s.precio, 0));
   return {
     ...totals,
     total,
-    count: sales.length,
-    average: sales.length > 0 ? round2(total / sales.length) : 0,
+    count: grouped.length,
+    average: grouped.length > 0 ? round2(total / grouped.length) : 0,
   };
 }
 
@@ -1744,6 +1816,10 @@ export function getGastos() {
 }
 
 export async function addGasto(gasto) {
+  if (!isDiaAbierto()) {
+    console.warn("⚠️ Intento de registrar gasto con el día cerrado.");
+    return null;
+  }
   const id = generateId();
   const now = new Date();
   const nuevoGasto = {
@@ -1779,6 +1855,29 @@ export function getGastosForJornada() {
   }
   // Only expenses made after this apertura opened
   return getGastos().filter(g => g.timestamp >= apertura.timestamp_apertura);
+}
+
+export function getGastosSummary() {
+  const all = getGastos();
+  const now = new Date();
+  
+  // Daily (Current session)
+  const daily = getGastosForJornada();
+  
+  // Weekly (Natural Week, starting Monday)
+  const monday = new Date(now);
+  const day = now.getDay(); // 0 is Sun, 1 is Mon
+  const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+  monday.setDate(diff);
+  monday.setHours(0,0,0,0);
+  
+  const weekly = all.filter(g => g.timestamp >= monday.getTime());
+  
+  return {
+    daily: daily.reduce((s, g) => s + (g.monto || 0), 0),
+    weekly: weekly.reduce((s, g) => s + (g.monto || 0), 0),
+    total: all.reduce((s, g) => s + (g.monto || 0), 0)
+  };
 }
 
 // ========================================

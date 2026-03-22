@@ -33,7 +33,8 @@ export function render() {
 
 function renderGastosTab() {
   const gastos = db.getGastos().slice().sort((a, b) => b.timestamp - a.timestamp);
-  const totalGastos = gastos.reduce((sum, g) => sum + g.monto, 0);
+  const summary = db.getGastosSummary();
+  const isAbierto = db.isDiaAbierto();
 
   return `
     <div style="max-width: 900px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 24px;">
@@ -44,17 +45,17 @@ function renderGastosTab() {
         
         <div class="form-group">
           <label class="form-label">Descripción del Gasto</label>
-          <input type="text" id="gasto-desc" class="form-input" placeholder="Ej: Compra de leche, Pago luz..." maxlength="50" />
+          <input type="text" id="gasto-desc" class="form-input" placeholder="Ej: Compra de leche, Pago luz..." maxlength="50" ${!isAbierto ? 'disabled' : ''} />
         </div>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
           <div class="form-group">
             <label class="form-label">Monto ($)</label>
-            <input type="number" id="gasto-monto" class="form-input" placeholder="0.00" step="0.01" min="0.01" />
+            <input type="number" id="gasto-monto" class="form-input" placeholder="0.00" step="0.01" min="0.01" ${!isAbierto ? 'disabled' : ''} />
           </div>
           <div class="form-group">
             <label class="form-label">Categoría</label>
-            <select id="gasto-cat" class="form-input">
+            <select id="gasto-cat" class="form-input" ${!isAbierto ? 'disabled' : ''}>
               <option value="Insumos">Insumos</option>
               <option value="Servicios">Servicios</option>
               <option value="Personal">Personal</option>
@@ -64,16 +65,33 @@ function renderGastosTab() {
           </div>
         </div>
 
-        <button class="btn btn-primary btn-lg" id="btn-save-gasto" style="width: 100%; margin-top: 8px;">
+        ${!isAbierto ? `
+          <div style="background: rgba(239, 68, 68, 0.1); color: var(--danger); padding: 12px; border-radius: 8px; font-size: 13px; margin-bottom: 16px; border: 1px solid rgba(239, 68, 68, 0.2); text-align: center; font-weight: 600;">
+            ⚠️ El día está cerrado. Abre la caja para registrar gastos.
+          </div>
+        ` : ''}
+
+        <button class="btn btn-primary btn-lg" id="btn-save-gasto" style="width: 100%; margin-top: 8px;" ${!isAbierto ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''}>
           💾 Guardar Gasto
         </button>
       </div>
 
-      <!-- Totals & History -->
+      <!-- Summary Stats -->
       <div style="display: flex; flex-direction: column; gap: 24px;">
-        <div class="stat-card lavender" style="padding: 32px 24px; text-align: center;">
-          <div class="stat-desc" style="font-size: 14px; text-transform: uppercase;">Total Gastos Registrados</div>
-          <div class="stat-number" style="font-size: 42px; margin-top: 8px;">${formatCurrency(totalGastos)}</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div class="stat-card" style="padding: 16px; text-align: center; background: rgba(255, 107, 157, 0.1); border: 1px solid rgba(255, 107, 157, 0.2);">
+            <div class="stat-desc" style="font-size: 11px; text-transform: uppercase; color: var(--accent-pink);">Gastos Hoy (Sesión)</div>
+            <div class="stat-number" style="font-size: 24px; margin-top: 4px; color: #fff;">${formatCurrency(summary.daily)}</div>
+          </div>
+          <div class="stat-card" style="padding: 16px; text-align: center; background: rgba(107, 217, 255, 0.1); border: 1px solid rgba(107, 217, 255, 0.2);">
+            <div class="stat-desc" style="font-size: 11px; text-transform: uppercase; color: #6bd9ff;">Gastos de la Semana</div>
+            <div class="stat-number" style="font-size: 24px; margin-top: 4px; color: #fff;">${formatCurrency(summary.weekly)}</div>
+          </div>
+        </div>
+
+        <div class="stat-card lavender" style="padding: 24px; text-align: center;">
+          <div class="stat-desc" style="font-size: 12px; text-transform: uppercase;">Total Gastos Históricos</div>
+          <div class="stat-number" style="font-size: 32px; margin-top: 4px;">${formatCurrency(summary.total)}</div>
         </div>
 
         <div class="card" style="padding: 20px; flex-grow: 1;">
@@ -228,6 +246,10 @@ export function init() {
 }
 
 async function handleSaveGasto() {
+  if (!db.isDiaAbierto()) {
+    window.showToast('⚠️ No se pueden registrar gastos con el día cerrado', 'error');
+    return;
+  }
   const descInput = document.getElementById('gasto-desc');
   const montoInput = document.getElementById('gasto-monto');
   const catInput = document.getElementById('gasto-cat');

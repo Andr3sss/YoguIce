@@ -352,6 +352,7 @@ function renderWizardHeader(title, subtitle, stepIdx, totalSteps) {
       </div>
       <div class="wizard-progress">${dots}</div>
     </div>
+    <div id="wizard-error-msg" style="color:var(--danger); font-size:13px; font-weight:800; text-align:center; height:20px; margin-top:-10px; margin-bottom:10px; opacity:0; transition: opacity 0.3s;"></div>
   `;
 }
 
@@ -786,6 +787,15 @@ function handlePosActions(e) {
       break;
 
     case 'wizard-sel-cat':
+      if (!activeCuentaId) {
+        const errorEl = document.getElementById('wizard-error-msg');
+        if (errorEl) {
+          errorEl.textContent = '⚠️ Primero abre una cuenta para tomar pedidos';
+          errorEl.style.opacity = '1';
+          setTimeout(() => { if (errorEl) errorEl.style.opacity = '0'; }, 3000);
+        }
+        return;
+      }
       wizardCategory = target.dataset.val;
       wizardStep = 'products';
       rerender('wizard');
@@ -933,29 +943,9 @@ function handlePosActions(e) {
       break;
 
     case 'toggle-sidebar':
-      const sidebar = document.getElementById('sidebar');
-      if (sidebar) {
-        sidebar.classList.toggle('mobile-active');
-        let overlay = document.getElementById('mobile-overlay');
-        if (!overlay) {
-          overlay = document.createElement('div');
-          overlay.id = 'mobile-overlay';
-          overlay.className = 'mobile-overlay';
-          document.body.appendChild(overlay);
-        }
-        overlay.onclick = () => {
-          sidebar.classList.remove('mobile-active');
-          document.querySelector('.right-panel')?.classList.remove('bottom-sheet-active');
-          overlay.classList.remove('active');
-        };
-        overlay.classList.toggle('active', sidebar.classList.contains('mobile-active') || document.querySelector('.right-panel')?.classList.contains('bottom-sheet-active'));
-      }
-      break;
-
-    case 'toggle-mobile-ticket':
-      const rp = document.querySelector('.right-panel');
-      if (rp) {
-        rp.classList.toggle('bottom-sheet-active');
+      const sidebarEl = document.getElementById('sidebar');
+      if (sidebarEl) {
+        sidebarEl.classList.toggle('mobile-active');
         let overlay = document.getElementById('mobile-overlay');
         if (!overlay) {
           overlay = document.createElement('div');
@@ -965,10 +955,31 @@ function handlePosActions(e) {
         }
         overlay.onclick = () => {
           document.getElementById('sidebar')?.classList.remove('mobile-active');
-          rp.classList.remove('bottom-sheet-active');
+          document.querySelector('.right-panel')?.classList.remove('bottom-sheet-active');
           overlay.classList.remove('active');
         };
-        const isActive = rp.classList.contains('bottom-sheet-active') || document.getElementById('sidebar')?.classList.contains('mobile-active');
+        const isActive = sidebarEl.classList.contains('mobile-active') || document.querySelector('.right-panel')?.classList.contains('bottom-sheet-active');
+        overlay.classList.toggle('active', isActive);
+      }
+      break;
+
+    case 'toggle-mobile-ticket':
+      const rightPanelEl = document.querySelector('.right-panel');
+      if (rightPanelEl) {
+        rightPanelEl.classList.toggle('bottom-sheet-active');
+        let overlay = document.getElementById('mobile-overlay');
+        if (!overlay) {
+          overlay = document.createElement('div');
+          overlay.id = 'mobile-overlay';
+          overlay.className = 'mobile-overlay';
+          document.body.appendChild(overlay);
+        }
+        overlay.onclick = () => {
+          document.getElementById('sidebar')?.classList.remove('mobile-active');
+          document.querySelector('.right-panel')?.classList.remove('bottom-sheet-active');
+          overlay.classList.remove('active');
+        };
+        const isActive = rightPanelEl.classList.contains('bottom-sheet-active') || document.getElementById('sidebar')?.classList.contains('mobile-active');
         overlay.classList.toggle('active', isActive);
       }
       break;
@@ -1160,6 +1171,7 @@ export function init() {
 
     // DB Listeners
     db.on('sale-added', onSaleAdded);
+    db.on('sales-changed', onSaleAdded); // Both should refresh the panel
     db.on('cuentas-changed', onCuentasChanged);
     db.on('products-changed', onProductsChanged);
 
@@ -1174,6 +1186,7 @@ export function cleanup() {
   }
 
   db.off('sale-added', onSaleAdded);
+  db.off('sales-changed', onSaleAdded);
   db.off('cuentas-changed', onCuentasChanged);
   db.off('products-changed', onProductsChanged);
 

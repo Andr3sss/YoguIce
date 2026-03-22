@@ -119,8 +119,10 @@ function renderAperturaForm() {
 function renderCierreForm(apertura) {
   const jornadaSales = db.getSalesForJornada();
   const summary = db.calcDaySummary(jornadaSales);
-  const transferenciasCount = jornadaSales.filter(s => s.metodo_pago === 'transferencia').length;
-  const transferenciasDetalle = jornadaSales.filter(s => s.metodo_pago === 'transferencia').map(s => s.precio);
+  
+  const groupedTransfers = db.groupSalesByCuenta(jornadaSales.filter(s => s.metodo_pago === 'transferencia'));
+  const transferenciasCount = groupedTransfers.length;
+  const transferenciasDetalle = groupedTransfers.map(g => g.total);
   
   const jornadaGastos = db.getGastosForJornada();
   const totalGastos = db.round2(jornadaGastos.reduce((sum, g) => sum + (g.monto || 0), 0));
@@ -488,6 +490,7 @@ export function init() {
   db.off('sales-changed', rerender);
   db.on('apertura-changed', rerender);
   db.on('sales-changed', rerender);
+  db.on('gastos-changed', rerender);
   
   if (document.getElementById('conciliacion-table-container')) {
     renderConciliacionTable();
@@ -653,7 +656,8 @@ async function handleCerrarDia() {
   const totalEsperado = db.round2(apertura.efectivo_inicial + summary.efectivo - totalGastos);
   const diferencia = db.round2(efectivoReal - totalEsperado);
 
-  const transferenciasCount = jornadaSales.filter(s => s.metodo_pago === 'transferencia').length;
+  const groupedTransfers = db.groupSalesByCuenta(jornadaSales.filter(s => s.metodo_pago === 'transferencia'));
+  const transferenciasCount = groupedTransfers.length;
   const totalIngresadas = db.round2(conciliacionTransferencias.reduce((sum, t) => sum + t.monto, 0));
   const diffTransferencias = db.round2(totalIngresadas - summary.transferencia);
 
@@ -680,7 +684,7 @@ async function handleCerrarDia() {
       cantidad_sistema: transferenciasCount, total_sistema: summary.transferencia,
       cantidad_ingresadas: conciliacionTransferencias.length, total_ingresadas: totalIngresadas,
       diferencia: diffTransferencias, detalle: conciliacionTransferencias,
-      sistema_detalles: jornadaSales.filter(s => s.metodo_pago === 'transferencia').map(s => s.precio)
+      sistema_detalles: groupedTransfers.map(g => g.total)
     }
   };
 
@@ -744,4 +748,5 @@ function rerender() {
 export function cleanup() {
   db.off('apertura-changed', rerender);
   db.off('sales-changed', rerender);
+  db.off('gastos-changed', rerender);
 }

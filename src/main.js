@@ -245,8 +245,14 @@ function checkPermissions() {
     let allowed = true;
 
     if (role === 'mesero') {
-      // Mesero only has access to Ventas and Cocina
-      if (page !== 'ventas' && page !== 'cocina') {
+      const isDesktop = window.innerWidth >= 1024;
+      // Mesero has access to Ventas, Cocina, and (on Desktop) Cuadre/Gastos
+      const desktopOnly = ['cuadre', 'gastos'];
+      const basicAccess = ['ventas', 'cocina'];
+
+      if (desktopOnly.includes(page)) {
+        allowed = isDesktop;
+      } else if (!basicAccess.includes(page)) {
         allowed = false;
       }
     }
@@ -419,6 +425,8 @@ function init() {
   } else {
     document.getElementById('sidebar').style.display = 'md' === 'xs' ? 'none' : 'flex'; // Reset sidebar
     checkPermissions();
+    // Add resize listener to re-check permissions (Desktop vs Mobile for waiters)
+    window.addEventListener('resize', checkPermissions);
     navigateTo('ventas');
   }
 }
