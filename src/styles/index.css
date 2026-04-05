@@ -688,6 +688,7 @@ body {
   inset: 0;
   background: rgba(0, 0, 0, 0.7);
   backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2475,37 +2476,8 @@ canvas {
     font-size: 16px;
   }
 
-  /* --- Bottom Sheet Panel (replaces the right panel) --- */
-  .right-panel {
-    display: none;
-    /* hidden normally */
-  }
-
-  .right-panel.bottom-sheet-active {
-    display: flex;
-    position: fixed;
-    top: 60px;
-    /* Leaves some space at top */
-    bottom: 0;
-    left: 0;
-    right: 0;
-    background: var(--bg-card);
-    z-index: 1000;
-    border-radius: 24px 24px 0 0;
-    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
-    padding: var(--spacing-md);
-    animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  }
-
-  @keyframes slideUp {
-    from {
-      transform: translateY(100%);
-    }
-
-    to {
-      transform: translateY(0);
-    }
-  }
+  /* Bottom Sheet: rules consolidated into @media (max-width: 1024px) below
+     to avoid conflicting display/animation vs transform/transition on iOS */
 
   /* Close bar for bottom sheet */
   .bottom-sheet-handle {
@@ -3805,6 +3777,10 @@ input:checked+.toggle-slider:before {
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
   z-index: 99;
+  /* iOS touch fixes */
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
 }
 
 .mobile-overlay.active {
@@ -3886,12 +3862,16 @@ input:checked+.toggle-slider:before {
     left: 0;
     width: 100vw;
     height: 85vh;
+    height: 85dvh; /* iOS Safari: accounts for dynamic browser chrome */
     z-index: 1000;
     transform: translateY(100%);
     transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
     background: var(--bg-primary);
     border-radius: 24px 24px 0 0;
     box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
+    padding: var(--spacing-md);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .right-panel.bottom-sheet-active {

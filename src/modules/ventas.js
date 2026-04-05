@@ -726,7 +726,13 @@ function rerender(section = null) {
       const container = document.getElementById('page-container');
       if (container) container.innerHTML = render();
       if (wasSheetOpen) {
-        document.querySelector('.right-panel')?.classList.add('bottom-sheet-active');
+        const rp = document.querySelector('.right-panel');
+        if (rp) {
+          rp.style.transition = 'none'; // Suppress iOS re-animation
+          rp.classList.add('bottom-sheet-active');
+          rp.offsetHeight; // force reflow
+          rp.style.transition = '';
+        }
       }
     } else {
       // Render each pending section independently
@@ -736,8 +742,16 @@ function rerender(section = null) {
           const el = document.getElementById(id);
           if (el) {
             const wasOpen = el.classList.contains('bottom-sheet-active');
-            el.innerHTML = func();
-            if (wasOpen) el.classList.add('bottom-sheet-active');
+            if (wasOpen) {
+              // Suppress transition during rerender to prevent iOS re-animation
+              el.style.transition = 'none';
+              el.innerHTML = func();
+              el.classList.add('bottom-sheet-active');
+              el.offsetHeight; // force reflow
+              el.style.transition = '';
+            } else {
+              el.innerHTML = func();
+            }
           }
         }
       }
@@ -951,7 +965,8 @@ function handlePosActions(e) {
           overlay = document.createElement('div');
           overlay.id = 'mobile-overlay';
           overlay.className = 'mobile-overlay';
-          document.body.appendChild(overlay);
+          const parent = document.getElementById('page-container') || document.body;
+          parent.appendChild(overlay);
         }
         overlay.onclick = () => {
           document.getElementById('sidebar')?.classList.remove('mobile-active');
@@ -972,7 +987,8 @@ function handlePosActions(e) {
           overlay = document.createElement('div');
           overlay.id = 'mobile-overlay';
           overlay.className = 'mobile-overlay';
-          document.body.appendChild(overlay);
+          const parent = document.getElementById('page-container') || document.body;
+          parent.appendChild(overlay);
         }
         overlay.onclick = () => {
           document.getElementById('sidebar')?.classList.remove('mobile-active');
@@ -1111,7 +1127,9 @@ function showCashCalculator(cuenta) {
   };
 
   const onInput = () => {
-    const received = parseFloat(input.value) || 0;
+    // Replace comma with period for parsing, removing any other non-numeric chars except digits and dots
+    const cleanedValue = input.value.replace(/,/g, '.').replace(/[^0-9.]/g, '');
+    const received = parseFloat(cleanedValue) || 0;
     updateChangeDisplay(received, cuenta.total);
   };
 
