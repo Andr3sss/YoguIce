@@ -81,5 +81,5 @@ Desarrollado, desplegado y vendido a un cliente real. Opera actualmente en múlt
  
 ## Autor
  
-**Andrés Quisilema** — Estudiante de Ing. en Sistemas, UIDE · Quito, Ecuador  
+**Andrés Quisilema** — Estudiante de Ing. en Sistemas · Quito, Ecuador  
 [GitHub](https://github.com/Andr3sss) · [Email](mailto:quisilemaandres2@gmail.com)
