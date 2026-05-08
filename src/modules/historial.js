@@ -141,6 +141,22 @@ function showDetail(dateStr) {
   const dateLabel = new Date(dateStr + 'T12:00:00').toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   const contentEl = document.getElementById('detail-content');
+
+  // Agrupar ventas por producto
+  const productSummary = {};
+  sales.forEach(s => {
+    const name = s.producto_nombre;
+    if (!productSummary[name]) {
+      productSummary[name] = { count: 0, total: 0 };
+    }
+    productSummary[name].count += 1;
+    productSummary[name].total += Number(s.precio);
+  });
+
+  const groupedSales = Object.entries(productSummary)
+    .sort((a, b) => b[1].count - a[1].count) // Ordenar por cantidad (mayor a menor)
+    .map(([name, data]) => ({ name, count: data.count, total: data.total }));
+
   contentEl.innerHTML = `
     <p style="color: var(--text-secondary); margin-bottom: 16px;">${dateLabel}</p>
     
@@ -163,17 +179,16 @@ function showDetail(dateStr) {
       </div>
     </div>
 
-    <h4 style="font-size: 14px; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px;">Ventas del Día (${sales.length})</h4>
+    <h4 style="font-size: 14px; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px;">Resumen de Productos Vendidos (${sales.length} items)</h4>
     <div style="max-height: 300px; overflow-y: auto;">
-      ${sales.length > 0 ? sales.map(s => `
-        <div class="sale-item">
-          <div class="sale-info">
-            <span class="sale-time">${s.hora.substring(0, 5)}</span>
-            <span>${s.producto_nombre}</span>
+      ${groupedSales.length > 0 ? groupedSales.map(g => `
+        <div class="sale-item" style="justify-content: space-between;">
+          <div class="sale-info" style="display: flex; gap: 8px; align-items: center;">
+            <span style="font-weight: 700; color: var(--text-primary);">${g.name}</span>
+            <span style="color: var(--text-muted); font-size: 13px;">(${g.count} vendidos)</span>
           </div>
-          <div style="display:flex;align-items:center;gap:8px;">
-            <span class="sale-method ${s.metodo_pago}">${s.metodo_pago}</span>
-            <span class="sale-amount">${formatCurrency(s.precio)}</span>
+          <div style="display:flex;align-items:center;">
+            <span class="sale-amount" style="color: var(--accent-pink); font-weight: 700;">${formatCurrency(g.total)}</span>
           </div>
         </div>
       `).join('') : '<p style="color: var(--text-muted); text-align: center; padding: 16px;">Sin ventas registradas</p>'}
