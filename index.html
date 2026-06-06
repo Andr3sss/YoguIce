@@ -73,6 +73,12 @@
             <span class="nav-label">Pantalla de Cocina</span>
           </button>
         </li>
+        <li>
+          <button class="nav-btn" data-page="recordatorios">
+            <span class="nav-icon">⏰</span>
+            <span class="nav-label">Recordatorios</span>
+          </button>
+        </li>
       </ul>
       <div class="sidebar-footer">
         <div id="user-info-container"></div>
@@ -188,6 +194,21 @@
       <div class="confirm-modal-actions">
         <button class="btn btn-ghost btn-lg" id="prompt-cancel-btn">Cancelar</button>
         <button class="btn btn-primary btn-lg" id="prompt-ok-btn">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reminder Popup (centered alert when a reminder is due) -->
+  <div id="reminder-modal" class="modal-overlay reminder-overlay" style="display:none;">
+    <div class="reminder-card" id="reminder-card">
+      <div class="reminder-icon" id="reminder-icon">⏰</div>
+      <div class="reminder-time" id="reminder-time"></div>
+      <h3 class="reminder-title" id="reminder-title"></h3>
+      <p class="reminder-note" id="reminder-note"></p>
+      <div class="reminder-meta" id="reminder-meta"></div>
+      <div class="reminder-actions">
+        <button class="btn btn-ghost btn-lg" id="reminder-snooze-btn">⏰ Posponer 10 min</button>
+        <button class="btn btn-success btn-lg" id="reminder-done-btn">✅ Listo</button>
       </div>
     </div>
   </div>
