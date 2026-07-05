@@ -15,6 +15,7 @@ const DB_KEYS = {
   GASTOS: 'heladeria_gastos',
   OPCIONES: 'heladeria_opciones',
   USUARIOS: 'heladeria_usuarios',
+  RECORDATORIOS: 'heladeria_recordatorios',
 };
 
 const DB_VERSION = 1;
@@ -336,6 +337,7 @@ const shadowStore = {
   productos: [],
   categorias: [],
   usuarios: [],
+  recordatorios: [],
 };
 
 let isSynced = false;
@@ -477,6 +479,15 @@ export function startCloudSync() {
     }
   }, (error) => {
     console.error('❌ Firestore Usuarios Sync Error:', error);
+  });
+
+  // Sync Recordatorios (Reminders)
+  onSnapshot(collection(firestore, 'recordatorios'), (snapshot) => {
+    shadowStore.recordatorios = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    saveCollection(DB_KEYS.RECORDATORIOS, shadowStore.recordatorios);
+    emit('recordatorios-changed', shadowStore.recordatorios);
+  }, (error) => {
+    console.error('❌ Firestore Recordatorios Sync Error:', error);
   });
 
   isSynced = true;
@@ -2072,6 +2083,77 @@ export function setCurrentUser(user) {
     localStorage.removeItem('heladeria_current_user');
   }
   emit('user-logged-in', user);
+}
+
+// ========================================
+// ⏰ Recordatorios CRUD (Reminders)
+// ========================================
+
+export function getRecordatorios() {
+  return getCollection(DB_KEYS.RECORDATORIOS);
+}
+
+export async function addRecordatorio(recordatorio) {
+  const id = generateId();
+  const user = getCurrentUser();
+  const nuevo = {
+    id,
+    titulo: recordatorio.titulo || '',
+    nota: recordatorio.nota || '',
+    hora: recordatorio.hora || '12:00',
+    tipo: recordatorio.tipo || 'diario',       // 'diario' | 'semanal' | 'unico'
+    dias: recordatorio.dias || [],             // [0..6] para 'semanal' (0=Dom)
+    fecha: recordatorio.fecha || getLocalDate(),// para 'unico'
+    prioridad: recordatorio.prioridad || 'normal', // 'normal' | 'alta'
+    activo: recordatorio.activo !== false,
+    creado_por: user ? user.nombre : 'Sistema',
+    timestamp: Date.now(),
+  };
+
+  // Shadow write (local)
+  const recs = getRecordatorios();
+  recs.push(nuevo);
+  saveCollection(DB_KEYS.RECORDATORIOS, recs);
+  emit('recordatorios-changed', recs);
+
+  // Cloud write
+  await setDoc(doc(firestore, 'recordatorios', id), nuevo).catch(err => {
+    console.error('Error al subir recordatorio a Firestore:', err);
+  });
+
+  return nuevo;
+}
+
+export async function updateRecordatorio(id, updates) {
+  const recs = getRecordatorios();
+  const idx = recs.findIndex(r => r.id === id);
+  if (idx === -1) return null;
+  recs[idx] = { ...recs[idx], ...updates };
+
+  // Shadow write (local)
+  saveCollection(DB_KEYS.RECORDATORIOS, recs);
+  emit('recordatorios-changed', recs);
+
+  // Cloud update
+  await updateDoc(doc(firestore, 'recordatorios', id), updates).catch(err => {
+    console.error('Error al actualizar recordatorio en Firestore:', err);
+  });
+
+  return recs[idx];
+}
+
+export async function deleteRecordatorio(id) {
+  let recs = getRecordatorios();
+  recs = recs.filter(r => r.id !== id);
+
+  // Shadow write (local)
+  saveCollection(DB_KEYS.RECORDATORIOS, recs);
+  emit('recordatorios-changed', recs);
+
+  // Cloud delete
+  await deleteDoc(doc(firestore, 'recordatorios', id)).catch(err => {
+    console.error('Error al eliminar recordatorio de Firestore:', err);
+  });
 }
 
 // ========================================

@@ -69,6 +69,13 @@ function soundCancel() {
   setTimeout(() => playTone(440, 0.25, 'triangle', 0.22), 300); // A4 — low finish
 }
 
+// ⏰ REMINDER — Calm but noticeable triple bell chime
+function soundReminder() {
+  playTone(784, 0.18, 'sine', 0.40);                          // G5
+  setTimeout(() => playTone(988, 0.18, 'sine', 0.40), 200);   // B5
+  setTimeout(() => playTone(784, 0.30, 'sine', 0.32), 420);   // G5 sustained
+}
+
 // ── Sound map ────────────────────────────────────────────
 
 const SOUND_FUNCTIONS = {
@@ -76,6 +83,7 @@ const SOUND_FUNCTIONS = {
   'update-order': soundUpdateOrder,
   'payment':      soundPayment,
   'cancel':       soundCancel,
+  'reminder':     soundReminder,
 };
 
 /**
@@ -103,7 +111,7 @@ function isDesktop() {
 
 /**
  * Play a UI sound with debounce protection.
- * @param {'new-order'|'update-order'|'payment'|'cancel'} action
+ * @param {'new-order'|'update-order'|'payment'|'cancel'|'reminder'} action
  * @param {boolean} desktopOnly - If true, only plays on screens > 1024px
  */
 export function playSound(action, desktopOnly = false) {

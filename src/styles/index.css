@@ -4996,5 +4996,283 @@ input:checked+.toggle-slider:before {
   100% { transform: scale(1); }
 }
 
+/* ========================================
+   ⏰ Recordatorios (módulo + popup)
+   ======================================== */
+
+/* --- Grid de tarjetas --- */
+.rec-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.rec-card {
+  background: var(--bg-card);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-left: 4px solid var(--accent-mint);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.rec-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.rec-card.inactive {
+  opacity: 0.5;
+  border-left-color: var(--text-muted);
+}
+
+.rec-card.priority-alta {
+  border-left-color: var(--danger);
+}
+
+.rec-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.rec-card-time {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: 1px;
+}
+
+.rec-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.rec-card-note {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.rec-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rec-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+}
+
+.rec-badge.alta {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.rec-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+/* --- Selector de días de la semana --- */
+.rec-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rec-day-btn {
+  flex: 1;
+  min-width: 44px;
+  padding: 10px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.rec-day-btn:hover {
+  border-color: var(--accent-mint);
+}
+
+.rec-day-btn.active {
+  background: var(--accent-mint);
+  color: var(--bg-primary);
+  border-color: var(--accent-mint);
+}
+
+/* --- Popup centrado del recordatorio --- */
+.reminder-overlay {
+  z-index: 4000;
+  backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.reminder-card {
+  background: var(--bg-card);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 6px solid var(--accent-mint);
+  border-radius: var(--radius-xl);
+  padding: 32px 28px;
+  width: 92%;
+  max-width: 420px;
+  text-align: center;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  animation: reminderPop 0.35s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+}
+
+.reminder-card.priority-alta {
+  border-top-color: var(--danger);
+  animation: reminderPop 0.35s cubic-bezier(0.18, 0.89, 0.32, 1.28), reminderPulse 1.2s ease-in-out 0.35s infinite;
+}
+
+.reminder-icon {
+  font-size: 52px;
+  line-height: 1;
+  margin-bottom: 8px;
+}
+
+.reminder-time {
+  font-size: 32px;
+  font-weight: 800;
+  color: var(--accent-mint);
+  letter-spacing: 2px;
+}
+
+.reminder-card.priority-alta .reminder-time {
+  color: var(--danger);
+}
+
+.reminder-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 10px 0 6px 0;
+}
+
+.reminder-note {
+  font-size: 15px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.reminder-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 20px;
+}
+
+.reminder-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.reminder-actions .btn {
+  flex: 1;
+}
+
+@keyframes reminderPop {
+  0% { transform: scale(0.8); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes reminderPulse {
+  0%, 100% { box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5); }
+  50% { box-shadow: 0 0 0 6px var(--danger-bg), 0 24px 60px rgba(0, 0, 0, 0.5); }
+}
+
+/* --- Rueda de hora (carrusel tipo iOS) --- */
+.time-wheel {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 200px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: pan-y;
+}
+
+.tw-col {
+  height: 200px;
+  width: 78px;
+  overflow-y: scroll;
+  scroll-snap-type: y mandatory;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  text-align: center;
+  /* máscara de desvanecido arriba/abajo */
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 28%, #000 72%, transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 28%, #000 72%, transparent);
+}
+
+.tw-col::-webkit-scrollbar {
+  display: none;
+}
+
+.tw-spacer {
+  height: 80px; /* 2 ítems, para poder centrar el primero/último */
+}
+
+.tw-item {
+  height: 40px;
+  line-height: 40px;
+  scroll-snap-align: center;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease, transform 0.15s ease, font-size 0.1s ease;
+}
+
+.tw-item.selected {
+  color: var(--text-primary);
+  font-size: 27px;
+  font-weight: 800;
+  transform: scale(1.04);
+}
+
+.tw-sep {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--text-primary);
+  z-index: 2;
+  padding-bottom: 2px;
+}
+
+.tw-highlight {
+  position: absolute;
+  top: 80px;
+  left: 8px;
+  right: 8px;
+  height: 40px;
+  border-top: 2px solid var(--accent-mint);
+  border-bottom: 2px solid var(--accent-mint);
+  background: rgba(0, 242, 254, 0.06);
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 1;
+}
+
 
 
