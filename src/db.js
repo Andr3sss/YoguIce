@@ -1983,30 +1983,53 @@ export async function getArchivableData(cutoffDateStr) {
  * Elimina de Firestore los registros ya exportados y recorta el caché local
  * inmediatamente (sin esperar el próximo round-trip de onSnapshot).
  * Nunca borra nada con estado 'abierta'/'abierto' (doble chequeo, por seguridad).
+ *
+ * Usa Promise.allSettled (no Promise.all): si Firestore rechaza el borrado de
+ * ALGÚN documento (ej. por reglas de seguridad), eso no debe abortar en silencio
+ * el resto de la operación ni hacer que el caché local se "limpie" localmente
+ * sin que el borrado haya ocurrido de verdad en la nube.
  */
 export async function archivarRegistros({ ventas, gastos, cuentas, jornadas }) {
   const CHUNK = 450;
 
   async function deleteAll(collName, records, guardFn) {
     const safe = guardFn ? records.filter(guardFn) : records;
+    const deletedRecords = [];
+    const errors = [];
     for (let i = 0; i < safe.length; i += CHUNK) {
       const chunk = safe.slice(i, i + CHUNK);
-      await Promise.all(chunk.map(r => deleteDoc(doc(firestore, collName, r.id))));
+      const results = await Promise.allSettled(chunk.map(r => deleteDoc(doc(firestore, collName, r.id))));
+      results.forEach((res, idx) => {
+        if (res.status === 'fulfilled') {
+          deletedRecords.push(chunk[idx]);
+        } else {
+          errors.push(res.reason?.code || res.reason?.message || String(res.reason));
+        }
+      });
     }
-    return safe.length;
+    return { deletedRecords, errors };
   }
 
-  const deleted = {
-    ventas: await deleteAll('ventas', ventas),
-    gastos: await deleteAll('gastos', gastos),
-    cuentas: await deleteAll('cuentas', cuentas, c => c.estado !== 'abierta'),
-    jornadas: await deleteAll('jornadas', jornadas, j => j.estado !== 'abierto'),
-  };
+  const [rVentas, rGastos, rCuentas, rJornadas] = await Promise.all([
+    deleteAll('ventas', ventas),
+    deleteAll('gastos', gastos),
+    deleteAll('cuentas', cuentas, c => c.estado !== 'abierta'),
+    deleteAll('jornadas', jornadas, j => j.estado !== 'abierto'),
+  ]);
 
-  const ventasIds = new Set(ventas.map(v => v.id));
-  const gastosIds = new Set(gastos.map(g => g.id));
-  const cuentasIds = new Set(cuentas.map(c => c.id));
-  const jornadasIds = new Set(jornadas.map(j => j.id));
+  const deleted = {
+    ventas: rVentas.deletedRecords.length,
+    gastos: rGastos.deletedRecords.length,
+    cuentas: rCuentas.deletedRecords.length,
+    jornadas: rJornadas.deletedRecords.length,
+  };
+  const errors = [...rVentas.errors, ...rGastos.errors, ...rCuentas.errors, ...rJornadas.errors];
+
+  // Solo recortamos el caché local con lo que REALMENTE se confirmó borrado en Firestore.
+  const ventasIds = new Set(rVentas.deletedRecords.map(v => v.id));
+  const gastosIds = new Set(rGastos.deletedRecords.map(g => g.id));
+  const cuentasIds = new Set(rCuentas.deletedRecords.map(c => c.id));
+  const jornadasIds = new Set(rJornadas.deletedRecords.map(j => j.id));
 
   shadowStore.ventas = shadowStore.ventas.filter(v => !ventasIds.has(v.id));
   shadowStore.gastos = shadowStore.gastos.filter(g => !gastosIds.has(g.id));
@@ -2023,7 +2046,7 @@ export async function archivarRegistros({ ventas, gastos, cuentas, jornadas }) {
   emit('cuentas-changed', shadowStore.cuentas);
   emit('cierres-changed', getCierres());
 
-  return deleted;
+  return { deleted, errors };
 }
 
 // ========================================

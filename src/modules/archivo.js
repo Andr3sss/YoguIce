@@ -52,10 +52,42 @@ export async function ejecutarArchivado(cutoffDateStr) {
   if (!borrarOk) return { archived: false, exported: true };
 
   window.showToast('🧹 Archivando registros...', 'info');
-  const deleted = await db.archivarRegistros(data);
+
+  let deleted, errors;
+  try {
+    ({ deleted, errors } = await db.archivarRegistros(data));
+  } catch (err) {
+    console.error('❌ Error inesperado al archivar registros:', err);
+    await window.showConfirm({
+      icon: '❌',
+      title: 'Error al eliminar los registros',
+      message: `Ocurrió un error inesperado y no se pudo completar el borrado: <b>${err?.message || err}</b>. El archivo Excel ya se descargó, pero nada se eliminó de la nube.`,
+      confirmText: 'Entendido',
+      confirmClass: 'btn-danger'
+    });
+    return { archived: false, exported: true, error: err };
+  }
+
   const totalDeleted = deleted.ventas + deleted.gastos + deleted.cuentas + deleted.jornadas;
+
+  if (errors.length > 0) {
+    const causaPermisos = errors.some(e => String(e).includes('permission') || String(e).includes('insufficient'));
+    await window.showConfirm({
+      icon: '⚠️',
+      title: totalDeleted > 0 ? 'Archivado parcial' : 'No se pudo eliminar nada',
+      message: `Se eliminaron <b>${totalDeleted}</b> de <b>${total}</b> registros. ${errors.length} fallaron.` +
+        (causaPermisos
+          ? ' La causa más probable son las <b>reglas de seguridad de Firestore</b>: revisa en la consola de Firebase que la operación "delete" esté permitida para las colecciones ventas, gastos, cuentas y jornadas.'
+          : ''),
+      details: `<div style="text-align:left;padding:10px;background:rgba(0,0,0,0.05);border-radius:8px;font-size:12px;max-height:150px;overflow-y:auto;">${errors.slice(0, 5).join('<br>')}</div>`,
+      confirmText: 'Entendido',
+      confirmClass: 'btn-danger'
+    });
+    return { archived: totalDeleted > 0, deleted, errors };
+  }
+
   window.showToast(`✅ Archivado completo: ${totalDeleted} registros eliminados`, 'success');
-  return { archived: true, deleted };
+  return { archived: true, deleted, errors };
 }
 
 /**

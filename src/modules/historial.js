@@ -177,6 +177,9 @@ export function init() {
       const { ejecutarArchivado } = await import('./archivo.js');
       await ejecutarArchivado(cutoff);
       rerender();
+    } catch (err) {
+      console.error('❌ Error inesperado en Archivar y Exportar:', err);
+      window.showToast(`❌ Ocurrió un error inesperado: ${err?.message || err}`, 'error');
     } finally {
       btn.disabled = false;
     }
