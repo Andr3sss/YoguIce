@@ -15,10 +15,10 @@ function defaultCutoffDate() {
 }
 
 function maxAllowedCutoffDate() {
-  // Tope mínimo: no permitir archivar nada más reciente que hace 30 días,
-  // para no romper los reportes de "mes en curso".
+  // Tope mínimo: no permitir archivar el día de hoy (la jornada de hoy
+  // podría seguir abierta) — cualquier día anterior es elegible.
   const d = new Date();
-  d.setDate(d.getDate() - 30);
+  d.setDate(d.getDate() - 1);
   return d.toISOString().split('T')[0];
 }
 
@@ -168,7 +168,7 @@ export function init() {
     const maxAllowed = maxAllowedCutoffDate();
 
     if (!cutoff || cutoff > maxAllowed) {
-      window.showToast(`⚠️ La fecha de corte debe ser al menos 30 días atrás (máximo permitido: ${maxAllowed})`, 'error');
+      window.showToast(`⚠️ La fecha de corte no puede ser hoy ni una fecha futura (máximo permitido: ${maxAllowed})`, 'error');
       return;
     }
 
