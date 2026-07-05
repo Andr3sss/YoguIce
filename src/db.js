@@ -1,7 +1,7 @@
 import { db as firestore } from './firebase.js';
-import { 
-  collection, doc, onSnapshot, setDoc, addDoc, updateDoc, 
-  query, where, orderBy, serverTimestamp, getDocs, limit, deleteDoc
+import {
+  collection, doc, onSnapshot, setDoc, addDoc, updateDoc,
+  query, where, orderBy, serverTimestamp, getDocs, limit, deleteDoc, writeBatch
 } from "firebase/firestore";
 
 const DB_KEYS = {
@@ -1958,23 +1958,30 @@ export async function getGlobalGastos(startDate = null, endDate = null) {
  * Trae TODO lo archivable hasta cutoffDateStr (inclusive) con consultas frescas a Firestore,
  * ignorando cualquier límite del caché local sincronizado en tiempo real.
  * Nunca incluye cuentas 'abierta' ni jornadas 'abierto'.
+ *
+ * El filtro de fecha se aplica en la propia consulta (where) para las 4 colecciones,
+ * en vez de descargar la colección completa y filtrar en el navegador — con meses
+ * de operación real, traer 'cuentas'/'jornadas' enteras en cada clic era pesado
+ * de por sí, sin contar el borrado posterior.
  */
 export async function getArchivableData(cutoffDateStr) {
   const [ventasSnap, gastosSnap, cuentasSnap, jornadasSnap] = await Promise.all([
     getDocs(query(collection(firestore, 'ventas'), where('fecha', '<=', cutoffDateStr))),
     getDocs(query(collection(firestore, 'gastos'), where('fecha', '<=', cutoffDateStr))),
-    getDocs(collection(firestore, 'cuentas')),
-    getDocs(collection(firestore, 'jornadas')),
+    getDocs(query(collection(firestore, 'cuentas'), where('fecha_cierre', '<=', cutoffDateStr))),
+    getDocs(query(collection(firestore, 'jornadas'), where('fecha', '<=', cutoffDateStr))),
   ]);
 
   const ventas = ventasSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   const gastos = gastosSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  // Filtros de estado como defensa adicional (una cuenta 'abierta' nunca tiene
+  // fecha_cierre, así que el where ya la excluye — esto es un segundo resguardo).
   const cuentas = cuentasSnap.docs
     .map(d => ({ id: d.id, ...d.data() }))
-    .filter(c => c.estado !== 'abierta' && c.fecha_cierre && c.fecha_cierre <= cutoffDateStr);
+    .filter(c => c.estado !== 'abierta');
   const jornadas = jornadasSnap.docs
     .map(d => ({ id: d.id, ...d.data() }))
-    .filter(j => j.estado === 'cerrado' && j.fecha <= cutoffDateStr);
+    .filter(j => j.estado === 'cerrado');
 
   return { ventas, gastos, cuentas, jornadas };
 }
@@ -1984,13 +1991,17 @@ export async function getArchivableData(cutoffDateStr) {
  * inmediatamente (sin esperar el próximo round-trip de onSnapshot).
  * Nunca borra nada con estado 'abierta'/'abierto' (doble chequeo, por seguridad).
  *
- * Usa Promise.allSettled (no Promise.all): si Firestore rechaza el borrado de
- * ALGÚN documento (ej. por reglas de seguridad), eso no debe abortar en silencio
- * el resto de la operación ni hacer que el caché local se "limpie" localmente
- * sin que el borrado haya ocurrido de verdad en la nube.
+ * Usa writeBatch en vez de cientos de deleteDoc() individuales en paralelo:
+ * con datos reales de producción (miles de registros acumulados), disparar
+ * cientos de solicitudes simultáneas saturaba el navegador y lo colgaba
+ * ("la página no responde"). writeBatch agrupa hasta 500 borrados en UNA
+ * sola solicitud de red por lote — mucho más liviano.
+ *
+ * Si un lote entero falla (ej. sin conexión), no se aborta todo en silencio:
+ * se sigue con los demás lotes y se reporta el error de ese lote puntual.
  */
 export async function archivarRegistros({ ventas, gastos, cuentas, jornadas }) {
-  const CHUNK = 450;
+  const CHUNK = 500; // límite de operaciones por writeBatch de Firestore
 
   async function deleteAll(collName, records, guardFn) {
     const safe = guardFn ? records.filter(guardFn) : records;
@@ -1998,14 +2009,14 @@ export async function archivarRegistros({ ventas, gastos, cuentas, jornadas }) {
     const errors = [];
     for (let i = 0; i < safe.length; i += CHUNK) {
       const chunk = safe.slice(i, i + CHUNK);
-      const results = await Promise.allSettled(chunk.map(r => deleteDoc(doc(firestore, collName, r.id))));
-      results.forEach((res, idx) => {
-        if (res.status === 'fulfilled') {
-          deletedRecords.push(chunk[idx]);
-        } else {
-          errors.push(res.reason?.code || res.reason?.message || String(res.reason));
-        }
-      });
+      try {
+        const batch = writeBatch(firestore);
+        chunk.forEach(r => batch.delete(doc(firestore, collName, r.id)));
+        await batch.commit();
+        deletedRecords.push(...chunk);
+      } catch (err) {
+        errors.push(`${collName} (lote de ${chunk.length}): ${err?.code || err?.message || String(err)}`);
+      }
     }
     return { deletedRecords, errors };
   }
