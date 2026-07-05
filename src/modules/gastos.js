@@ -8,7 +8,7 @@ import { formatCurrency } from '../main.js';
 let activeTab = 'gastos'; // 'gastos' | 'suministros'
 let editingInsumoId = null;
 
-export function render() {
+export async function render() {
   return `
     <div class="page-header">
       <h2>💸 Gastos & 📦 Suministros</h2>
@@ -26,15 +26,16 @@ export function render() {
     </div>
 
     <div id="tab-content">
-      ${activeTab === 'gastos' ? renderGastosTab() : renderSuministrosTab()}
+      ${activeTab === 'gastos' ? await renderGastosTab() : renderSuministrosTab()}
     </div>
   `;
 }
 
-function renderGastosTab() {
+async function renderGastosTab() {
   // Ahora solo mostramos los gastos exclusivos del día actual (sesión abierta)
   const gastos = db.getGastosForJornada().slice().sort((a, b) => b.timestamp - a.timestamp);
-  const summary = db.getGastosSummary();
+  const summary = db.getGastosSummaryLocal();
+  const totalHistorico = await db.getGastosTotalHistorico();
   const isAbierto = db.isDiaAbierto();
 
   return `
@@ -92,7 +93,7 @@ function renderGastosTab() {
 
         <div class="stat-card lavender" style="padding: 24px; text-align: center;">
           <div class="stat-desc" style="font-size: 12px; text-transform: uppercase;">Total Gastos Históricos</div>
-          <div class="stat-number" style="font-size: 32px; margin-top: 4px;">${formatCurrency(summary.total)}</div>
+          <div class="stat-number" style="font-size: 32px; margin-top: 4px;">${formatCurrency(totalHistorico)}</div>
         </div>
 
         <div class="card" style="padding: 20px; flex-grow: 1;">
@@ -401,10 +402,10 @@ function handleKeydown(e) {
   }
 }
 
-function rerender() {
+async function rerender() {
   const container = document.getElementById('page-container');
   if (container) {
-    container.innerHTML = render();
+    container.innerHTML = await render();
     init();
   }
 }

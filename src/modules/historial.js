@@ -6,8 +6,26 @@
 import * as db from '../db.js';
 import { formatCurrency } from '../main.js';
 
+let visibleCount = 30;
+
+function defaultCutoffDate() {
+  const d = new Date();
+  d.setDate(d.getDate() - 90);
+  return d.toISOString().split('T')[0];
+}
+
+function maxAllowedCutoffDate() {
+  // Tope mínimo: no permitir archivar nada más reciente que hace 30 días,
+  // para no romper los reportes de "mes en curso".
+  const d = new Date();
+  d.setDate(d.getDate() - 30);
+  return d.toISOString().split('T')[0];
+}
+
 export function render() {
-  const cierres = db.getCierres().slice().reverse();
+  const allCierres = db.getCierres().slice().reverse();
+  const cierres = allCierres.slice(0, visibleCount);
+  const hasMore = allCierres.length > visibleCount;
 
   return `
     <div class="page-header">
@@ -15,7 +33,14 @@ export function render() {
       <p>Registro de todos los cierres de caja realizados</p>
     </div>
 
-    ${cierres.length === 0 ? `
+    <div class="card" style="padding:16px; margin-bottom:16px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+      <label class="form-label" style="margin:0;">Archivar registros anteriores a:</label>
+      <input type="date" id="archivo-cutoff-date" class="form-input" style="max-width:180px;"
+             value="${defaultCutoffDate()}" max="${maxAllowedCutoffDate()}" />
+      <button class="btn btn-danger" id="btn-archivar-exportar">📦 Archivar y Exportar</button>
+    </div>
+
+    ${allCierres.length === 0 ? `
       <div class="empty-state">
         <div class="empty-icon">📋</div>
         <p>No hay cierres de caja registrados</p>
@@ -66,22 +91,28 @@ export function render() {
         </table>
       </div>
 
-      <!-- Summary stats -->
+      ${hasMore ? `
+        <button class="btn btn-ghost" id="btn-load-more-cierres" style="width:100%; margin-top:12px;">
+          Cargar más (${allCierres.length - visibleCount} restantes)
+        </button>
+      ` : ''}
+
+      <!-- Summary stats (siempre sobre TODOS los cierres, no solo los visibles) -->
       <div class="stats-grid" style="margin-top: 24px;">
         <div class="stat-card pink">
-          <div class="stat-number">${cierres.length}</div>
+          <div class="stat-number">${allCierres.length}</div>
           <div class="stat-desc">Cierres Realizados</div>
         </div>
         <div class="stat-card mint">
-          <div class="stat-number">${formatCurrency(cierres.reduce((s, c) => s + c.total_dia, 0))}</div>
+          <div class="stat-number">${formatCurrency(allCierres.reduce((s, c) => s + c.total_dia, 0))}</div>
           <div class="stat-desc">Total Histórico</div>
         </div>
         <div class="stat-card lavender">
-          <div class="stat-number">${formatCurrency(cierres.length > 0 ? cierres.reduce((s, c) => s + c.total_dia, 0) / cierres.length : 0)}</div>
+          <div class="stat-number">${formatCurrency(allCierres.length > 0 ? allCierres.reduce((s, c) => s + c.total_dia, 0) / allCierres.length : 0)}</div>
           <div class="stat-desc">Promedio por Día</div>
         </div>
-        <div class="stat-card ${cierres.filter(c => Math.abs(c.diferencia) < 0.01).length === cierres.length ? 'mint' : 'peach'}">
-          <div class="stat-number">${cierres.filter(c => Math.abs(c.diferencia) < 0.01).length}/${cierres.length}</div>
+        <div class="stat-card ${allCierres.filter(c => Math.abs(c.diferencia) < 0.01).length === allCierres.length ? 'mint' : 'peach'}">
+          <div class="stat-number">${allCierres.filter(c => Math.abs(c.diferencia) < 0.01).length}/${allCierres.length}</div>
           <div class="stat-desc">Cajas Cuadradas</div>
         </div>
       </div>
@@ -124,6 +155,32 @@ export function init() {
   // Refresh when new cierres arrive from Firestore
   db.on('apertura-changed', rerender);
   db.on('cierres-changed', rerender);
+
+  document.getElementById('btn-load-more-cierres')?.addEventListener('click', () => {
+    visibleCount += 30;
+    rerender();
+  });
+
+  document.getElementById('btn-archivar-exportar')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    const input = document.getElementById('archivo-cutoff-date');
+    const cutoff = input?.value;
+    const maxAllowed = maxAllowedCutoffDate();
+
+    if (!cutoff || cutoff > maxAllowed) {
+      window.showToast(`⚠️ La fecha de corte debe ser al menos 30 días atrás (máximo permitido: ${maxAllowed})`, 'error');
+      return;
+    }
+
+    btn.disabled = true;
+    try {
+      const { ejecutarArchivado } = await import('./archivo.js');
+      await ejecutarArchivado(cutoff);
+      rerender();
+    } finally {
+      btn.disabled = false;
+    }
+  });
 }
 
 function rerender() {
@@ -198,4 +255,6 @@ function showDetail(dateStr) {
   document.getElementById('detail-modal').style.display = 'flex';
 }
 
-export function cleanup() {}
+export function cleanup() {
+  visibleCount = 30;
+}

@@ -56,27 +56,24 @@ async function getFilteredSales(filter) {
 async function getFilteredGastos(filter) {
   const today = new Date();
   const todayStr = today.toISOString().split('T')[0];
-  const allGastos = db.getGastos();
 
   switch (filter) {
     case 'dia':
-      return allGastos.filter(g => g.fecha === todayStr);
+      return await db.getGlobalGastos(todayStr, todayStr);
     case 'semana': {
       const weekAgo = new Date(today);
       weekAgo.setDate(weekAgo.getDate() - 7);
-      const weekStr = weekAgo.toISOString().split('T')[0];
-      return allGastos.filter(g => g.fecha >= weekStr && g.fecha <= todayStr);
+      return await db.getGlobalGastos(weekAgo.toISOString().split('T')[0], todayStr);
     }
     case 'mes': {
       const monthAgo = new Date(today);
       monthAgo.setDate(monthAgo.getDate() - 30);
-      const monthStr = monthAgo.toISOString().split('T')[0];
-      return allGastos.filter(g => g.fecha >= monthStr && g.fecha <= todayStr);
+      return await db.getGlobalGastos(monthAgo.toISOString().split('T')[0], todayStr);
     }
     case 'todo':
       return await db.getGlobalGastos();
     default:
-      return allGastos;
+      return db.getGastos();
   }
 }
 

@@ -350,9 +350,9 @@ export function startCloudSync() {
     emit('apertura-changed', getAperturaHoy());
   });
 
-  // Sync Cuentas
+  // Sync Cuentas (últimas 1000 por apertura, para no re-sincronizar años de historial en cada escritura)
   console.log('📡 Subscribing to Cuentas onSnapshot...');
-  onSnapshot(collection(firestore, 'cuentas'), (snapshot) => {
+  onSnapshot(query(collection(firestore, 'cuentas'), orderBy('timestamp_apertura', 'desc'), limit(1000)), (snapshot) => {
     console.log(`🔄 Firestore Sync: Received ${snapshot.docs.length} cuentas (Source: ${snapshot.metadata.hasPendingWrites ? 'Local' : 'Server'})`);
     shadowStore.cuentas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     saveCollection(DB_KEYS.CUENTAS, shadowStore.cuentas);
@@ -386,8 +386,8 @@ export function startCloudSync() {
     emit('sales-changed', shadowStore.ventas);
   });
 
-  // Sync Gastos
-  onSnapshot(collection(firestore, 'gastos'), (snapshot) => {
+  // Sync Gastos (últimos 500 — el total histórico real se consulta aparte, on-demand, vía getGastosTotalHistorico)
+  onSnapshot(query(collection(firestore, 'gastos'), orderBy('timestamp', 'desc'), limit(500)), (snapshot) => {
     shadowStore.gastos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     saveCollection(DB_KEYS.GASTOS, shadowStore.gastos);
     emit('gastos-changed', shadowStore.gastos);
@@ -1782,29 +1782,26 @@ export async function cancelarPedidoCocina(cuentaId) {
 }
 
 /**
- * Marca como 'listo' todos los pedidos de fechas anteriores que no estén finalizados.
+ * Elimina (no solo marca) todos los pedidos de cocina de fechas anteriores a hoy.
+ * Los tickets de cocina no tienen valor de reporte una vez terminado el día —
+ * borrarlos evita que la colección 'cocina_kds' crezca para siempre.
  */
 export async function archivarPedidosAntiguosCocina() {
   const today = getLocalDate();
   const pedidos = getCollection(DB_KEYS.COCINA);
-  let changed = false;
+  const toDelete = pedidos.filter(p => !p.fecha || p.fecha < today);
+  const toKeep = pedidos.filter(p => p.fecha && p.fecha >= today);
 
-  for (const p of pedidos) {
-    // Si no tiene fecha (pedidos viejos) o su fecha es anterior a hoy
-    if (p.estado !== 'listo' && p.estado !== 'cancelado' && (!p.fecha || p.fecha < today)) {
-      p.estado = 'listo';
-      changed = true;
-      // Cloud update sin await para que sea rápido (optimistic approach)
-      updateDoc(doc(firestore, 'cocina_kds', p.id), { estado: 'listo' }).catch(console.error);
-    }
-  }
-
-  if (changed) {
-    saveCollection(DB_KEYS.COCINA, pedidos);
+  if (toDelete.length > 0) {
+    saveCollection(DB_KEYS.COCINA, toKeep);
     localStorage.setItem('kds_ping', Date.now().toString());
     emit('cocina-updated', null);
+
+    // Cloud delete (sin await para que sea rápido, optimistic approach)
+    Promise.all(toDelete.map(p => deleteDoc(doc(firestore, 'cocina_kds', p.id))))
+      .catch(err => console.error('❌ Error archivando pedidos antiguos de cocina:', err));
   }
-  return changed;
+  return toDelete.length > 0;
 }
 
 // ========================================
@@ -1854,27 +1851,41 @@ export function getGastosForJornada() {
   return getGastos().filter(g => g.timestamp >= apertura.timestamp_apertura);
 }
 
-export function getGastosSummary() {
+/**
+ * Resumen rápido (daily/weekly) calculado sobre el caché local sincronizado.
+ * Seguro con un listener de 'gastos' acotado, ya que ambas ventanas son recientes.
+ */
+export function getGastosSummaryLocal() {
   const all = getGastos();
   const now = new Date();
-  
+
   // Daily (Current session)
   const daily = getGastosForJornada();
-  
+
   // Weekly (Natural Week, starting Monday)
   const monday = new Date(now);
   const day = now.getDay(); // 0 is Sun, 1 is Mon
   const diff = now.getDate() - day + (day === 0 ? -6 : 1);
   monday.setDate(diff);
   monday.setHours(0,0,0,0);
-  
+
   const weekly = all.filter(g => g.timestamp >= monday.getTime());
-  
+
   return {
     daily: daily.reduce((s, g) => s + (g.monto || 0), 0),
     weekly: weekly.reduce((s, g) => s + (g.monto || 0), 0),
-    total: all.reduce((s, g) => s + (g.monto || 0), 0)
   };
+}
+
+/**
+ * Total histórico real vía consulta fresca a Firestore (no depende del caché local acotado).
+ * Se llama on-demand (ej. al entrar a la pantalla de Gastos), no en cada escritura.
+ */
+export async function getGastosTotalHistorico() {
+  const snapshot = await getDocs(collection(firestore, 'gastos'));
+  let total = 0;
+  snapshot.forEach(d => { total += (d.data().monto || 0); });
+  return total;
 }
 
 // ========================================
@@ -1926,6 +1937,82 @@ export async function getGlobalGastos(startDate = null, endDate = null) {
 
   const snapshot = await getDocs(q);
   return snapshot.docs.map(doc => doc.data());
+}
+
+// ========================================
+// 📦 Archivado histórico (Exportar + Limpiar)
+// ========================================
+
+/**
+ * Trae TODO lo archivable hasta cutoffDateStr (inclusive) con consultas frescas a Firestore,
+ * ignorando cualquier límite del caché local sincronizado en tiempo real.
+ * Nunca incluye cuentas 'abierta' ni jornadas 'abierto'.
+ */
+export async function getArchivableData(cutoffDateStr) {
+  const [ventasSnap, gastosSnap, cuentasSnap, jornadasSnap] = await Promise.all([
+    getDocs(query(collection(firestore, 'ventas'), where('fecha', '<=', cutoffDateStr))),
+    getDocs(query(collection(firestore, 'gastos'), where('fecha', '<=', cutoffDateStr))),
+    getDocs(collection(firestore, 'cuentas')),
+    getDocs(collection(firestore, 'jornadas')),
+  ]);
+
+  const ventas = ventasSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const gastos = gastosSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const cuentas = cuentasSnap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(c => c.estado !== 'abierta' && c.fecha_cierre && c.fecha_cierre <= cutoffDateStr);
+  const jornadas = jornadasSnap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(j => j.estado === 'cerrado' && j.fecha <= cutoffDateStr);
+
+  return { ventas, gastos, cuentas, jornadas };
+}
+
+/**
+ * Elimina de Firestore los registros ya exportados y recorta el caché local
+ * inmediatamente (sin esperar el próximo round-trip de onSnapshot).
+ * Nunca borra nada con estado 'abierta'/'abierto' (doble chequeo, por seguridad).
+ */
+export async function archivarRegistros({ ventas, gastos, cuentas, jornadas }) {
+  const CHUNK = 450;
+
+  async function deleteAll(collName, records, guardFn) {
+    const safe = guardFn ? records.filter(guardFn) : records;
+    for (let i = 0; i < safe.length; i += CHUNK) {
+      const chunk = safe.slice(i, i + CHUNK);
+      await Promise.all(chunk.map(r => deleteDoc(doc(firestore, collName, r.id))));
+    }
+    return safe.length;
+  }
+
+  const deleted = {
+    ventas: await deleteAll('ventas', ventas),
+    gastos: await deleteAll('gastos', gastos),
+    cuentas: await deleteAll('cuentas', cuentas, c => c.estado !== 'abierta'),
+    jornadas: await deleteAll('jornadas', jornadas, j => j.estado !== 'abierto'),
+  };
+
+  const ventasIds = new Set(ventas.map(v => v.id));
+  const gastosIds = new Set(gastos.map(g => g.id));
+  const cuentasIds = new Set(cuentas.map(c => c.id));
+  const jornadasIds = new Set(jornadas.map(j => j.id));
+
+  shadowStore.ventas = shadowStore.ventas.filter(v => !ventasIds.has(v.id));
+  shadowStore.gastos = shadowStore.gastos.filter(g => !gastosIds.has(g.id));
+  shadowStore.cuentas = shadowStore.cuentas.filter(c => !cuentasIds.has(c.id));
+  shadowStore.aperturas = shadowStore.aperturas.filter(a => !jornadasIds.has(a.id));
+
+  saveCollection(DB_KEYS.VENTAS, shadowStore.ventas);
+  saveCollection(DB_KEYS.GASTOS, shadowStore.gastos);
+  saveCollection(DB_KEYS.CUENTAS, shadowStore.cuentas);
+  saveCollection(DB_KEYS.APERTURAS, shadowStore.aperturas);
+
+  emit('sales-changed', shadowStore.ventas);
+  emit('gastos-changed', shadowStore.gastos);
+  emit('cuentas-changed', shadowStore.cuentas);
+  emit('cierres-changed', getCierres());
+
+  return deleted;
 }
 
 // ========================================
